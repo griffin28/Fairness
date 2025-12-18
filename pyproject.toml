@@ -1,0 +1,11 @@
+[project]
+name = "fairnessinlending"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aif360>=0.6.1",
+    "matplotlib>=3.10.8",
+    "torch>=2.9.1",
+]
