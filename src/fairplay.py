@@ -1,6 +1,5 @@
 import cupy as cp
 import cudf
-import cuml
 from cuml.ensemble import RandomForestClassifier
 
 import numpy as np
@@ -313,8 +312,8 @@ def main(infile, trained_model=None, verbose=False):
         if column in preprocessed_df.columns:
             if condition == 0:
                 preprocessed_df = preprocessed_df[preprocessed_df[column] != 0]
-            elif condition == "not equals to 1":
-                preprocessed_df = preprocessed_df[preprocessed_df[column] == 1]
+            elif condition == 1:
+                preprocessed_df = preprocessed_df[preprocessed_df[column] != 1]
 
     # 2024 changes
     # Drop specific columns as predictors
@@ -379,13 +378,14 @@ def main(infile, trained_model=None, verbose=False):
     preprocessed_df['bins'] = pd.cut(preprocessed_df['tract_minority_population_percent'], bins=10, labels=False)
 
     # 2024 changes-Stratified split based on bins
-    df_train, df_test = train_test_split(preprocessed_df, test_size=0.25, stratify=preprocessed_df['bins'], random_state=42)
+    df_train, df_test = train_test_split(preprocessed_df, test_size=0.25, stratify=preprocessed_df['bins'], random_state=11850)
     # After stratified split
     print(f"Training set size: {len(df_train)}, Test set size: {len(df_test)}")
 
     # 2024 changes-Remove 'bins' column after splitting
     df_train.drop(columns=['bins'], inplace=True)
     df_test.drop(columns=['bins'], inplace=True)
+    # preprocessed_df.drop(columns=['bins'], inplace=True)
 
     # 2024 changes-Check distribution in original data, train set, and test set
     original_dist = preprocessed_df['tract_minority_population_percent'].describe()
@@ -523,7 +523,7 @@ def main(infile, trained_model=None, verbose=False):
         # Train and test the original model
         if verbose:
             # Slow: runs on CPU because GPU version doesn't have feature importance
-            importance_rf = ske.RandomForestClassifier(n_estimators=120, random_state=np.random.seed(11850))
+            importance_rf = ske.RandomForestClassifier(n_estimators=120, random_state=11850)
             importance_rf.fit(X_train_orig, pd.Series(y_train_orig))
             importances = importance_rf.feature_importances_
             sorted_idx = importances.argsort()
@@ -542,7 +542,7 @@ def main(infile, trained_model=None, verbose=False):
         X_test_orig_gdf = cudf.from_pandas(X_test_orig)
 
         # Faster: runs on GPU
-        clf_orig = RandomForestClassifier(n_estimators=120, random_state=np.random.seed(11850))
+        clf_orig = RandomForestClassifier(n_estimators=120, random_state=11850)
         clf_orig.fit(X_train_orig_gdf, y_train_orig_cp)
 
         pred_train_orig = clf_orig.predict(X_train_orig_gdf)
@@ -571,17 +571,17 @@ def main(infile, trained_model=None, verbose=False):
         df_train_bld_pred = df_train_bld.copy()
         df_train_bld_pred.labels = np.reshape(predictions1, (-1, 1))
 
-        metric_train_orig = compute_metrics(df_train_bld, df_train_bld_pred,
-                                            unprivileged_groups, privileged_groups,
-                                            disp=True)
+        # metric_train_orig = compute_metrics(df_train_bld, df_train_bld_pred,
+        #                                     unprivileged_groups, privileged_groups,
+        #                                     disp=True)
 
         print('\n#### Original Testing AIF360 Fairness Metrics:')
         df_test_bld_pred = df_test_bld.copy()
         df_test_bld_pred.labels = np.reshape(predictions2, (-1, 1))
 
-        metric_test_orig = compute_metrics(df_test_bld, df_test_bld_pred,
-                                           unprivileged_groups, privileged_groups,
-                                           disp=True)
+        # metric_test_orig = compute_metrics(df_test_bld, df_test_bld_pred,
+        #                                    unprivileged_groups, privileged_groups,
+        #                                    disp=True)
         # End timing for this iteration
         end_time_orig = datetime.now()
         execution_time_orig = (end_time_orig - start_time_orig).total_seconds() / 3600  # T in hours
@@ -599,7 +599,7 @@ def main(infile, trained_model=None, verbose=False):
 
         if verbose:
             # Slow: runs on CPU because GPU version doesn't have feature importance
-            importance_rf = ske.RandomForestClassifier(n_estimators=120, random_state=np.random.seed(11850))
+            importance_rf = ske.RandomForestClassifier(n_estimators=120, random_state=11850)
             importance_rf.fit(X_train_unbiased, pd.Series(y_train_unbiased))
             importances = importance_rf.feature_importances_
             sorted_idx = importances.argsort()
@@ -619,7 +619,7 @@ def main(infile, trained_model=None, verbose=False):
             clf_unbiased = load(trained_model.name)
         else:
             # Faster: runs on GPU
-            clf_unbiased = RandomForestClassifier(n_estimators=120, random_state=np.random.seed(11850))
+            clf_unbiased = RandomForestClassifier(n_estimators=120, random_state=11850)
             clf_unbiased.fit(X_train_unbiased_gdf, y_train_unbiased_cp)
 
             print("Saving trained model...\n")
@@ -630,6 +630,11 @@ def main(infile, trained_model=None, verbose=False):
 
         predictions1_unbiased = cp.asnumpy(pred_train_unbiased)
         predictions2_unbiased = cp.asnumpy(pred_test_unbiased)
+
+        del clf_unbiased
+        del X_train_unbiased_gdf, y_train_unbiased_cp, X_test_unbiased_gdf
+        del pred_train_unbiased, pred_test_unbiased
+        cp.get_default_memory_pool().free_all_blocks()
 
         # End timing for this iteration
         end_time_unbiased = datetime.now()
@@ -711,10 +716,10 @@ def main(infile, trained_model=None, verbose=False):
         results_dict["Equal opportunity difference (Unbiased Test)"].append(metric_test_unbiased["Equal opportunity difference"])
         results_dict["Theil index (Unbiased Test)"].append(metric_test_unbiased["Theil index"])
         # Append T and Energy to results_dict
-        results_dict["Execution_Time_unbiased (Hours)"] = total_execution_time_unbiased
-        results_dict["Execution_Time_orig (Hours)"] = total_execution_time_orig
-        results_dict["Energy_Unbiased (kWh)"] = total_energy_unbiased
-        results_dict["Energy_Orig (kWh)"] = total_energy_orig
+        results_dict["Execution_Time_unbiased (Hours)"].append(total_execution_time_unbiased)
+        results_dict["Execution_Time_orig (Hours)"].append(total_execution_time_orig)
+        results_dict["Energy_Unbiased (kWh)"].append(total_energy_unbiased)
+        results_dict["Energy_Orig (kWh)"].append(total_energy_orig)
 
 
     # Transpose the DataFrame so that metrics are rows and attributes are columns
@@ -765,6 +770,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     # # Compute and print denial reason counts
     # denial_counts_df = compute_denial_reason_counts(args.infile.name)
-    main(args.infile, args.model, args.verbose)
+    main(args.infile.name, args.model, args.verbose)
     # Compute and print denial reason counts
     denial_counts_df = compute_denial_reason_counts(args.infile.name)
