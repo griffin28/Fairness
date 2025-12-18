@@ -439,8 +439,8 @@ def main(infile, trained_model=None, verbose=False):
         if column in preprocessed_df.columns:
             if condition == 0:
                 preprocessed_df = preprocessed_df[preprocessed_df[column] != 0]
-            elif condition == "not equals to 1":
-                preprocessed_df = preprocessed_df[preprocessed_df[column] == 1]
+            elif condition == 1:
+                preprocessed_df = preprocessed_df[preprocessed_df[column] != 1]
 
     # 2024 changes
     # Drop specific columns as predictors
