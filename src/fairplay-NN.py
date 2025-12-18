@@ -69,7 +69,7 @@ def train_neural_network(model, train_loader, criterion, optimizer, num_epochs=2
             optimizer.step()
     return model
 
-def evaluate_neural_network(model, test_loader, binary=True):
+def evaluate_neural_network(model, test_loader, binary=True) -> tuple[list, list]:
     """
     Evaluate a neural network model.
 
@@ -92,7 +92,7 @@ def evaluate_neural_network(model, test_loader, binary=True):
                 true_labels.extend(labels.numpy())
             else:
                 inputs = batch[0] if isinstance(batch, (tuple, list)) else batch
-                true_labels = None  # No labels available
+                true_labels = []  # No labels available
 
             outputs = model(inputs)
             if binary:
@@ -816,7 +816,7 @@ def main(infile, trained_model=None, verbose=False):
     X_test_denial = df_test_denial[columns_to_retain]
 
     # Train Random Forest for denial reasons
-    clf_rf_denial = ske.RandomForestClassifier(n_estimators=120, random_state=np.random.seed(11850))
+    clf_rf_denial = ske.RandomForestClassifier(n_estimators=120, random_state=11850)
     clf_rf_denial.fit(X_train_denial, y_train_denial_reason)
 
     # Predict denial reasons using Random Forest
@@ -928,7 +928,7 @@ def main(infile, trained_model=None, verbose=False):
         # Train and test the original model
         if verbose:
             # Slow: runs on CPU because GPU version doesn't have feature importance
-            importance_rf = ske.RandomForestClassifier(n_estimators=120, random_state=np.random.seed(11850))
+            importance_rf = ske.RandomForestClassifier(n_estimators=120, random_state=11850)
             importance_rf.fit(X_train_orig, pd.Series(y_train_orig))
             importances = importance_rf.feature_importances_
             sorted_idx = importances.argsort()
@@ -947,7 +947,7 @@ def main(infile, trained_model=None, verbose=False):
         X_test_orig_gdf = cudf.from_pandas(X_test_orig)
 
         # Faster: runs on GPU
-        clf_orig = RandomForestClassifier(n_estimators=120, random_state=np.random.seed(11850))
+        clf_orig = RandomForestClassifier(n_estimators=120, random_state=11850)
         clf_orig.fit(X_train_orig_gdf, y_train_orig_cp)
 
         pred_train_orig = clf_orig.predict(X_train_orig_gdf)
@@ -1004,7 +1004,7 @@ def main(infile, trained_model=None, verbose=False):
 
         if verbose:
             # Slow: runs on CPU because GPU version doesn't have feature importance
-            importance_rf = ske.RandomForestClassifier(n_estimators=120, random_state=np.random.seed(11850))
+            importance_rf = ske.RandomForestClassifier(n_estimators=120, random_state=11850)
             importance_rf.fit(X_train_unbiased, pd.Series(y_train_unbiased))
             importances = importance_rf.feature_importances_
             sorted_idx = importances.argsort()
@@ -1024,7 +1024,7 @@ def main(infile, trained_model=None, verbose=False):
             clf_unbiased = load(trained_model.name)
         else:
             # Faster: runs on GPU
-            clf_unbiased = RandomForestClassifier(n_estimators=120, random_state=np.random.seed(11850))
+            clf_unbiased = RandomForestClassifier(n_estimators=120, random_state=11850)
             clf_unbiased.fit(X_train_unbiased_gdf, y_train_unbiased_cp)
 
             # print("Saving trained model...\n")
@@ -1035,6 +1035,10 @@ def main(infile, trained_model=None, verbose=False):
 
         predictions1_unbiased = cp.asnumpy(pred_train_unbiased)
         predictions2_unbiased = cp.asnumpy(pred_test_unbiased)
+
+        # Clear GPU memory
+        del clf_unbiased
+        del X_train_unbiased_gdf, y_train_unbiased_cp, X_test_unbiased_gdf
 
         # End timing for this iteration
         end_time_unbiased = datetime.now()
@@ -1118,7 +1122,7 @@ def main(infile, trained_model=None, verbose=False):
         results_dict["RF Mean difference (Original Train)"].append(train_metrics["Mean difference"])
         results_dict["NN Statistical parity difference (Original Train)"].append(metric_train_nn["Statistical parity difference"])
         results_dict["NN Disparate impact (Original Train)"].append(metric_train_nn["Disparate impact"])
-        results_dict["NN Mean difference (Original Train)"].append(metric_train_nn["Theil index"])
+        results_dict["NN Mean difference (Original Train)"].append(metric_train_nn["Mean difference"])
         results_dict["#### Reweighted training dataset"].append("")
         results_dict["RF Statistical parity difference (Reweighted Train)"].append(train_metrics["Statistical parity difference (Reweighted)"])
         results_dict["RF Disparate impact (Reweighted Train)"].append(train_metrics["Disparate impact (Reweighted)"])
@@ -1130,9 +1134,9 @@ def main(infile, trained_model=None, verbose=False):
         results_dict["RF Statistical parity difference (Original Test)"].append(test_metrics["Statistical parity difference"])
         results_dict["RF Disparate impact (Original Test)"].append(test_metrics["Disparate impact"])
         results_dict["RF Mean difference (Original Test)"].append(test_metrics["Mean difference"])
-        results_dict["NN Statistical parity difference (Original Test)"].append(metric_test_nn["Average odds difference"])
-        results_dict["NN Disparate impact (Original Test)"].append(metric_test_nn["Average odds difference"])
-        results_dict["NN Mean difference (Original Test)"].append(metric_test_nn["Average odds difference"])
+        results_dict["NN Statistical parity difference (Original Test)"].append(metric_test_nn["Statistical parity difference"])
+        results_dict["NN Disparate impact (Original Test)"].append(metric_test_nn["Disparate impact"])
+        results_dict["NN Mean difference (Original Test)"].append(metric_test_nn["Mean difference"])
         results_dict["#### Reweighted testing dataset"].append("")
         results_dict["RF Statistical parity difference (Reweighted Test)"].append(test_metrics["Statistical parity difference (Reweighted)"])
         results_dict["RF Disparate impact (Reweighted Test)"].append(test_metrics["Disparate impact (Reweighted)"])
@@ -1200,15 +1204,15 @@ def main(infile, trained_model=None, verbose=False):
         results_dict["Average odds difference (Unbiased Test) (NN)"].append(metric_test_unbiased_nn["Average odds difference"])
         results_dict["Equal opportunity difference (Unbiased Test) (NN)"].append(metric_test_unbiased_nn["Equal opportunity difference"])
         results_dict["Theil index (Unbiased Test) (NN)"].append(metric_test_unbiased_nn["Theil index"])
-        results_dict["Denial Reason Training Accuracy Score (RF)"] = rf_denial_train_accuracy
-        results_dict["Denial Reason Testing Accuracy Score (RF)"] = rf_denial_test_accuracy
-        results_dict["Denial Reason Training Accuracy Score (NN)"] = nn_denial_train_accuracy
-        results_dict["Denial Reason Testing Accuracy Score (NN)"] = nn_denial_test_accuracy
+        results_dict["Denial Reason Training Accuracy Score (RF)"].append(rf_denial_train_accuracy)
+        results_dict["Denial Reason Testing Accuracy Score (RF)"].append(rf_denial_test_accuracy)
+        results_dict["Denial Reason Training Accuracy Score (NN)"].append(nn_denial_train_accuracy)
+        results_dict["Denial Reason Testing Accuracy Score (NN)"].append(nn_denial_test_accuracy)
         # Append T and Energy to results_dict
-        results_dict["Execution_Time_unbiased (Hours)"] = total_execution_time_unbiased
-        results_dict["Execution_Time_orig (Hours)"] = total_execution_time_orig
-        results_dict["Energy_Unbiased (kWh)"] = total_energy_unbiased
-        results_dict["Energy_Orig (kWh)"] = total_energy_orig
+        results_dict["Execution_Time_unbiased (Hours)"].append(total_execution_time_unbiased)
+        results_dict["Execution_Time_orig (Hours)"].append(total_execution_time_orig)
+        results_dict["Energy_Unbiased (kWh)"].append(total_energy_unbiased)
+        results_dict["Energy_Orig (kWh)"].append(total_energy_orig)
 
     # Transpose the DataFrame so that metrics are rows and attributes are columns
     results_df = pd.DataFrame(results_dict, index=PROTECTED_ATTRIBUTES).T
